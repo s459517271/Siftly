@@ -7,17 +7,23 @@ import {
   BookmarkX,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   LayoutGrid,
   List,
+  AlignJustify,
   X,
   ChevronDown,
   ArrowUpDown,
 } from 'lucide-react'
 import * as Select from '@radix-ui/react-select'
 import BookmarkCard from '@/components/bookmark-card'
+import BookmarkRow from '@/components/bookmark-row'
+import BookmarkDetailModal from '@/components/bookmark-detail-modal'
 import type { BookmarkWithMedia, BookmarksResponse } from '@/lib/types'
 
-const PAGE_SIZE = 24
+const DEFAULT_PAGE_SIZE = 24
+const COMPACT_PAGE_SIZE = 100
 
 interface Filters {
   q: string
@@ -39,7 +45,7 @@ const DEFAULT_FILTERS: Filters = {
   uncategorized: false,
 }
 
-function buildUrl(filters: Filters): string {
+function buildUrl(filters: Filters, limit: number): string {
   const params = new URLSearchParams()
   if (filters.q) params.set('q', filters.q)
   if (filters.uncategorized) {
@@ -51,7 +57,7 @@ function buildUrl(filters: Filters): string {
   if (filters.source) params.set('source', filters.source)
   params.set('sort', filters.sort)
   params.set('page', String(filters.page))
-  params.set('limit', String(PAGE_SIZE))
+  params.set('limit', String(limit))
   return `/api/bookmarks?${params.toString()}`
 }
 
@@ -139,59 +145,59 @@ function Pagination({
   onChange: (p: number) => void
 }) {
   const totalPages = Math.ceil(total / limit)
+  const [jumpValue, setJumpValue] = useState('')
+
   if (totalPages <= 1) return null
 
-  const getPageNumbers = (): (number | 'ellipsis')[] => {
-    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
-    const pages: (number | 'ellipsis')[] = [1]
-    if (page > 3) pages.push('ellipsis')
-    const start = Math.max(2, page - 1)
-    const end = Math.min(totalPages - 1, page + 1)
-    for (let i = start; i <= end; i++) pages.push(i)
-    if (page < totalPages - 2) pages.push('ellipsis')
-    pages.push(totalPages)
-    return pages
+  function handleJumpKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return
+    const num = parseInt(jumpValue, 10)
+    if (!isNaN(num) && num >= 1 && num <= totalPages) {
+      onChange(num)
+    }
+    setJumpValue('')
   }
 
-  return (
-    <div className="flex items-center justify-center gap-1.5 mt-12">
-      <button
-        onClick={() => onChange(page - 1)}
-        disabled={page <= 1}
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 hover:bg-zinc-800 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
-      >
-        <ChevronLeft size={14} />
-        Prev
-      </button>
+  const navBtnClass =
+    'flex items-center justify-center w-9 h-9 rounded-xl text-sm bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 hover:bg-zinc-800 disabled:opacity-25 disabled:cursor-not-allowed transition-all'
 
-      <div className="flex items-center gap-1">
-        {getPageNumbers().map((p, i) =>
-          p === 'ellipsis' ? (
-            <span key={`ellipsis-${i}`} className="px-2 text-zinc-700 text-sm select-none">&hellip;</span>
-          ) : (
-            <button
-              key={p}
-              onClick={() => onChange(p)}
-              className={`w-9 h-9 rounded-xl text-sm font-medium transition-all ${
-                p === page
-                  ? 'bg-indigo-600 text-white border border-indigo-500/50 shadow-lg shadow-indigo-500/20'
-                  : 'bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-zinc-100 hover:border-zinc-700 hover:bg-zinc-800'
-              }`}
-            >
-              {p}
-            </button>
-          )
-        )}
+  return (
+    <div className="flex items-center justify-center gap-3 mt-12">
+      {/* Jump to page */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-zinc-500 select-none">Jump to page</span>
+        <input
+          type="number"
+          min={1}
+          max={totalPages}
+          value={jumpValue}
+          onChange={(e) => setJumpValue(e.target.value)}
+          onKeyDown={handleJumpKeyDown}
+          placeholder="—"
+          className="w-14 px-2 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder:text-zinc-700 text-sm text-center focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/20 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
       </div>
 
-      <button
-        onClick={() => onChange(page + 1)}
-        disabled={page >= totalPages}
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 hover:bg-zinc-800 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
-      >
-        Next
-        <ChevronRight size={14} />
-      </button>
+      {/* Page indicator */}
+      <span className="text-sm text-zinc-600 select-none tabular-nums">
+        Page <span className="text-zinc-400">{page}</span> of <span className="text-zinc-400">{totalPages}</span>
+      </span>
+
+      {/* Navigation arrows */}
+      <div className="flex items-center gap-1">
+        <button onClick={() => onChange(1)} disabled={page <= 1} className={navBtnClass} title="First page">
+          <ChevronsLeft size={14} />
+        </button>
+        <button onClick={() => onChange(page - 1)} disabled={page <= 1} className={navBtnClass} title="Previous page">
+          <ChevronLeft size={14} />
+        </button>
+        <button onClick={() => onChange(page + 1)} disabled={page >= totalPages} className={navBtnClass} title="Next page">
+          <ChevronRight size={14} />
+        </button>
+        <button onClick={() => onChange(totalPages)} disabled={page >= totalPages} className={navBtnClass} title="Last page">
+          <ChevronsRight size={14} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -209,13 +215,14 @@ function BookmarksPageInner() {
   const [bookmarks, setBookmarks] = useState<BookmarkWithMedia[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'compact'>('grid')
+  const [openBookmark, setOpenBookmark] = useState<BookmarkWithMedia | null>(null)
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const fetchBookmarks = useCallback(async (f: Filters) => {
+  const fetchBookmarks = useCallback(async (f: Filters, limit: number) => {
     setLoading(true)
     try {
-      const res = await fetch(buildUrl(f))
+      const res = await fetch(buildUrl(f, limit))
       if (!res.ok) throw new Error('Failed to fetch')
       const data: BookmarksResponse = await res.json()
       setBookmarks(data.bookmarks)
@@ -229,9 +236,16 @@ function BookmarksPageInner() {
     }
   }, [])
 
+  const pageSize = viewMode === 'compact' ? COMPACT_PAGE_SIZE : DEFAULT_PAGE_SIZE
+
   useEffect(() => {
-    fetchBookmarks(filters)
-  }, [fetchBookmarks, filters])
+    fetchBookmarks(filters, pageSize)
+  }, [fetchBookmarks, filters, pageSize])
+
+  function handleSetViewMode(mode: 'grid' | 'list' | 'compact') {
+    setViewMode(mode)
+    setFilters((prev) => ({ ...prev, page: 1 }))
+  }
 
   function updateSearch(q: string) {
     setSearchInput(q)
@@ -326,7 +340,7 @@ function BookmarksPageInner() {
             {/* View toggle */}
             <div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 rounded-xl p-1 shrink-0">
               <button
-                onClick={() => setViewMode('grid')}
+                onClick={() => handleSetViewMode('grid')}
                 className={`p-1.5 rounded-lg transition-all ${
                   viewMode === 'grid' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-600 hover:text-zinc-300'
                 }`}
@@ -335,13 +349,22 @@ function BookmarksPageInner() {
                 <LayoutGrid size={14} />
               </button>
               <button
-                onClick={() => setViewMode('list')}
+                onClick={() => handleSetViewMode('list')}
                 className={`p-1.5 rounded-lg transition-all ${
                   viewMode === 'list' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-600 hover:text-zinc-300'
                 }`}
                 aria-label="List view"
               >
                 <List size={14} />
+              </button>
+              <button
+                onClick={() => handleSetViewMode('compact')}
+                className={`p-1.5 rounded-lg transition-all ${
+                  viewMode === 'compact' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-600 hover:text-zinc-300'
+                }`}
+                aria-label="Compact view"
+              >
+                <AlignJustify size={14} />
               </button>
             </div>
 
@@ -457,13 +480,29 @@ function BookmarksPageInner() {
           </div>
         )}
 
+        {/* Compact view */}
+        {!loading && bookmarks.length > 0 && viewMode === 'compact' && (
+          <div className="flex flex-col divide-y divide-zinc-800/50 border border-zinc-800 rounded-2xl overflow-hidden max-w-5xl mx-auto">
+            {bookmarks.map((bookmark) => (
+              <BookmarkRow key={bookmark.id} bookmark={bookmark} onClick={setOpenBookmark} />
+            ))}
+          </div>
+        )}
+
         <Pagination
           page={filters.page}
           total={total}
-          limit={PAGE_SIZE}
+          limit={pageSize}
           onChange={(p) => setFilters((prev) => ({ ...prev, page: p }))}
         />
       </div>
+
+      {openBookmark && (
+        <BookmarkDetailModal
+          bookmark={openBookmark}
+          onClose={() => setOpenBookmark(null)}
+        />
+      )}
     </div>
   )
 }

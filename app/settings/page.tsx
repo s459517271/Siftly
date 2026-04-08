@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Eye,
   EyeOff,
@@ -14,12 +14,17 @@ import {
   Shield,
   ExternalLink,
   ChevronDown,
+  ChevronRight,
+  ChevronUp,
   Zap,
   Copy,
   Coffee,
   Terminal,
   Loader2,
   X,
+  BookOpen,
+  Folder,
+  FolderOpen,
 } from 'lucide-react'
 
 const ANTHROPIC_MODELS = [
@@ -34,6 +39,12 @@ const OPENAI_MODELS = [
   { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', description: 'Fastest' },
   { value: 'o4-mini', label: 'o4-mini', description: 'Reasoning (mini)' },
   { value: 'o3', label: 'o3', description: 'Reasoning' },
+]
+
+const MINIMAX_MODELS = [
+  { value: 'MiniMax-M2.7', label: 'M2.7', description: '1M Context, Latest' },
+  { value: 'MiniMax-M2.5', label: 'M2.5', description: '204K Context' },
+  { value: 'MiniMax-M2.5-highspeed', label: 'M2.5 Highspeed', description: '204K, Fastest' },
 ]
 
 
@@ -106,7 +117,7 @@ function ApiKeyField({
 }: {
   label: string
   placeholder: string
-  fieldKey: 'anthropicApiKey' | 'openaiApiKey'
+  fieldKey: 'anthropicApiKey' | 'openaiApiKey' | 'minimaxApiKey'
   hint: string
   docHref: string
   onToast: (t: Toast) => void
@@ -125,7 +136,7 @@ function ApiKeyField({
     fetch('/api/settings')
       .then((r) => r.json())
       .then((d: Record<string, unknown>) => {
-        const hasKeyField = fieldKey === 'openaiApiKey' ? 'hasOpenaiKey' : 'hasAnthropicKey'
+        const hasKeyField = fieldKey === 'openaiApiKey' ? 'hasOpenaiKey' : fieldKey === 'minimaxApiKey' ? 'hasMinimaxKey' : 'hasAnthropicKey'
         const hasKey = d[hasKeyField]
         const masked = d[fieldKey] as string | null
         if (hasKey && masked) setSavedMasked(masked)
@@ -305,7 +316,7 @@ function ModelSelector({
   onToast,
 }: {
   models: { value: string; label: string; description: string }[]
-  settingKey: 'anthropicModel' | 'openaiModel'
+  settingKey: 'anthropicModel' | 'openaiModel' | 'minimaxModel'
   defaultValue: string
   onToast: (t: Toast) => void
 }) {
@@ -438,12 +449,12 @@ function ClaudeCliStatusBox() {
 }
 
 function CodexCliStatusBox() {
-  const [status, setStatus] = useState<{ available: boolean; expired?: boolean; planType?: string; authMode?: string } | null>(null)
+  const [status, setStatus] = useState<{ available: boolean; expired?: boolean; planType?: string; authMode?: string; hasCredentials?: boolean } | null>(null)
 
   useEffect(() => {
     fetch('/api/settings/cli-status')
       .then((r) => r.json())
-      .then((d: { codex?: { available: boolean; expired?: boolean; planType?: string; authMode?: string } }) => setStatus(d.codex ?? { available: false }))
+      .then((d: { codex?: { available: boolean; expired?: boolean; planType?: string; authMode?: string; hasCredentials?: boolean } }) => setStatus(d.codex ?? { available: false }))
       .catch(() => setStatus({ available: false }))
   }, [])
 
@@ -453,22 +464,27 @@ function CodexCliStatusBox() {
     const tier = status.planType
       ? status.planType.charAt(0).toUpperCase() + status.planType.slice(1)
       : 'CLI'
+    const isChatGPT = status.authMode === 'chatgpt'
     return (
       <div className="flex gap-3 p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 mb-5">
         <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-emerald-300">
-            Codex CLI detected — no API key needed
+            Codex CLI detected{isChatGPT ? ' (ChatGPT login)' : ' — no API key needed'}
           </p>
           <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
-            Signed in as <span className="text-zinc-300">{tier}</span> via Codex CLI. Siftly will use your credentials automatically. An API key below will take priority if set.
+            {isChatGPT ? (
+              <>Signed in as <span className="text-zinc-300">{tier}</span> via ChatGPT. AI features will use Codex CLI to proxy requests. An API key below will take priority if set.</>
+            ) : (
+              <>Signed in as <span className="text-zinc-300">{tier}</span> via Codex CLI. Siftly will use your credentials automatically. An API key below will take priority if set.</>
+            )}
           </p>
         </div>
       </div>
     )
   }
 
-  if (status.available && status.expired) {
+  if (status.hasCredentials && status.expired) {
     return (
       <div className="flex gap-3 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/20 mb-5">
         <AlertCircle size={15} className="text-amber-400 shrink-0 mt-0.5" />
@@ -476,6 +492,20 @@ function CodexCliStatusBox() {
           <p className="text-sm font-medium text-amber-300">Codex CLI session expired</p>
           <p className="text-xs text-zinc-500 mt-0.5">
             Run <span className="font-mono text-zinc-300">codex</span> in your terminal to refresh, then reload this page.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (status.hasCredentials && !status.available) {
+    return (
+      <div className="flex gap-3 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/20 mb-5">
+        <AlertCircle size={15} className="text-amber-400 shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-amber-300">Codex credentials found but CLI not available</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Found saved credentials but the <span className="font-mono text-zinc-300">codex</span> binary is not responding. Install or reinstall Codex CLI, or paste your OpenAI API key below.
           </p>
         </div>
       </div>
@@ -495,7 +525,7 @@ function CodexCliStatusBox() {
   )
 }
 
-function ProviderToggle({ value, onChange }: { value: 'anthropic' | 'openai'; onChange: (v: 'anthropic' | 'openai') => void }) {
+function ProviderToggle({ value, onChange }: { value: 'anthropic' | 'openai' | 'minimax'; onChange: (v: 'anthropic' | 'openai' | 'minimax') => void }) {
   return (
     <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-800 border border-zinc-700 mb-5">
       <button
@@ -506,7 +536,7 @@ function ProviderToggle({ value, onChange }: { value: 'anthropic' | 'openai'; on
             : 'text-zinc-400 hover:text-zinc-200'
         }`}
       >
-        Anthropic (Claude)
+        Anthropic
       </button>
       <button
         onClick={() => onChange('openai')}
@@ -516,27 +546,38 @@ function ProviderToggle({ value, onChange }: { value: 'anthropic' | 'openai'; on
             : 'text-zinc-400 hover:text-zinc-200'
         }`}
       >
-        OpenAI (GPT)
+        OpenAI
+      </button>
+      <button
+        onClick={() => onChange('minimax')}
+        className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+          value === 'minimax'
+            ? 'bg-orange-600 text-white shadow-sm'
+            : 'text-zinc-400 hover:text-zinc-200'
+        }`}
+      >
+        MiniMax
       </button>
     </div>
   )
 }
 
 function ApiKeySection({ onToast }: { onToast: (t: Toast) => void }) {
-  const [provider, setProvider] = useState<'anthropic' | 'openai' | null>(null)
+  const [provider, setProvider] = useState<'anthropic' | 'openai' | 'minimax' | null>(null)
 
   useEffect(() => {
     fetch('/api/settings')
       .then((r) => r.json())
       .then((d: { provider?: string }) => {
-        setProvider(d.provider === 'openai' ? 'openai' : 'anthropic')
+        setProvider(d.provider === 'openai' ? 'openai' : d.provider === 'minimax' ? 'minimax' : 'anthropic')
       })
       .catch(() => setProvider('anthropic'))
   }, [])
 
-  async function handleProviderChange(newProvider: 'anthropic' | 'openai') {
+  async function handleProviderChange(newProvider: 'anthropic' | 'openai' | 'minimax') {
     const prev = provider
     setProvider(newProvider)
+    const labels: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI', minimax: 'MiniMax' }
     try {
       const res = await fetch('/api/settings', {
         method: 'POST',
@@ -544,7 +585,7 @@ function ApiKeySection({ onToast }: { onToast: (t: Toast) => void }) {
         body: JSON.stringify({ provider: newProvider }),
       })
       if (!res.ok) throw new Error('Failed to save provider')
-      onToast({ type: 'success', message: `Switched to ${newProvider === 'openai' ? 'OpenAI' : 'Anthropic'}` })
+      onToast({ type: 'success', message: `Switched to ${labels[newProvider]}` })
     } catch {
       setProvider(prev) // revert on failure
       onToast({ type: 'error', message: 'Failed to save provider preference' })
@@ -598,7 +639,7 @@ function ApiKeySection({ onToast }: { onToast: (t: Toast) => void }) {
             </div>
           </div>
         </>
-      ) : (
+      ) : provider === 'openai' ? (
         <>
           <CodexCliStatusBox />
           <div className="space-y-5">
@@ -622,6 +663,27 @@ function ApiKeySection({ onToast }: { onToast: (t: Toast) => void }) {
             </div>
           </div>
         </>
+      ) : (
+        <div className="space-y-5">
+          <div>
+            <ApiKeyField
+              label="MiniMax"
+              placeholder="eyJ..."
+              fieldKey="minimaxApiKey"
+              hint="Used for AI categorization, search, and image analysis."
+              docHref="https://platform.minimaxi.com/user-center/basic-information/interface-key"
+              onToast={onToast}
+              testProvider="minimax"
+            />
+            <ModelSelector
+              models={MINIMAX_MODELS}
+              settingKey="minimaxModel"
+              defaultValue="MiniMax-M2.7"
+              onToast={onToast}
+            />
+            <p className="text-xs text-zinc-500 mt-1.5">MiniMax M2.7 supports 1M context window — great for large batch categorization</p>
+          </div>
+        </div>
       )}
       <p className="text-xs text-zinc-600 mt-4">Keys are stored in plaintext in your local SQLite database (<code className="font-mono">prisma/dev.db</code>). Do not expose the database file.</p>
     </Section>
@@ -652,6 +714,251 @@ function ExportButton({
       </div>
       <p className="text-xs text-zinc-600">{description}</p>
     </button>
+  )
+}
+
+interface ObsidianResult {
+  written: number
+  skipped: number
+  errors: Array<{ tweetId: string; error: string }>
+  indexesWritten: number
+}
+
+interface BrowseDir {
+  name: string
+  path: string
+}
+
+function FolderBrowser({ onSelect, onClose }: { onSelect: (path: string) => void; onClose: () => void }) {
+  const [current, setCurrent] = useState('')
+  const [parent, setParent] = useState<string | null>(null)
+  const [dirs, setDirs] = useState<BrowseDir[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const browse = useCallback(async (dirPath?: string) => {
+    setLoading(true)
+    try {
+      const params = dirPath ? `?path=${encodeURIComponent(dirPath)}` : ''
+      const res = await fetch(`/api/settings/browse${params}`)
+      const data = await res.json()
+      if (!res.ok) return
+      setCurrent(data.current)
+      setParent(data.parent)
+      setDirs(data.directories)
+    } catch {}
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { browse() }, [browse])
+
+  return (
+    <div className="border border-zinc-700 rounded-xl bg-zinc-800/50 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-700 bg-zinc-800">
+        <p className="text-xs font-mono text-zinc-400 truncate flex-1 mr-2">{current}</p>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => onSelect(current)}
+            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white transition-colors"
+          >
+            Select this folder
+          </button>
+          <button onClick={onClose} className="p-1 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+      <div className="max-h-52 overflow-y-auto">
+        {parent && (
+          <button
+            onClick={() => browse(parent)}
+            className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm text-zinc-400 hover:bg-zinc-700/50 transition-colors border-b border-zinc-800"
+          >
+            <ChevronUp size={14} className="text-zinc-500" />
+            <span>..</span>
+          </button>
+        )}
+        {loading ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 size={16} className="text-zinc-500 animate-spin" />
+          </div>
+        ) : dirs.length === 0 ? (
+          <p className="text-xs text-zinc-600 text-center py-4">No subdirectories</p>
+        ) : (
+          dirs.map((dir) => (
+            <button
+              key={dir.path}
+              onClick={() => browse(dir.path)}
+              className="flex items-center gap-2 w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-700/50 transition-colors group"
+            >
+              <Folder size={14} className="text-zinc-500 group-hover:text-indigo-400 transition-colors shrink-0" />
+              <span className="truncate">{dir.name}</span>
+              <ChevronRight size={12} className="text-zinc-600 ml-auto shrink-0" />
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ObsidianExportBlock({ onToast }: { onToast: (t: Toast) => void }) {
+  const [vaultPath, setVaultPath] = useState('')
+  const [savedPath, setSavedPath] = useState<string | null>(null)
+  const [savingPath, setSavingPath] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [result, setResult] = useState<ObsidianResult | null>(null)
+  const [overwrite, setOverwrite] = useState(false)
+  const [browserOpen, setBrowserOpen] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((d: Record<string, unknown>) => {
+        if (d.obsidianVaultPath) setSavedPath(d.obsidianVaultPath as string)
+      })
+      .catch(() => {})
+  }, [])
+
+  async function handleSavePath(pathToSave?: string) {
+    const finalPath = pathToSave ?? vaultPath
+    if (!finalPath.trim()) {
+      onToast({ type: 'error', message: 'Enter a vault path first' })
+      return
+    }
+    setSavingPath(true)
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ obsidianVaultPath: finalPath.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to save')
+      setSavedPath(finalPath.trim())
+      setVaultPath(finalPath.trim())
+      onToast({ type: 'success', message: 'Vault path saved' })
+    } catch (err) {
+      onToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to save path' })
+    } finally {
+      setSavingPath(false)
+    }
+  }
+
+  async function handleExport() {
+    setExporting(true)
+    setResult(null)
+    try {
+      const res = await fetch('/api/export/obsidian', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ overwrite }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Export failed')
+      setResult(data)
+      onToast({ type: 'success', message: `Exported ${data.written} notes to Obsidian` })
+    } catch (err) {
+      onToast({ type: 'error', message: err instanceof Error ? err.message : 'Export failed' })
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  function handleBrowseSelect(selectedPath: string) {
+    setVaultPath(selectedPath)
+    setBrowserOpen(false)
+    handleSavePath(selectedPath)
+  }
+
+  return (
+    <Section
+      icon={BookOpen}
+      title="Obsidian Export"
+      description="Export bookmarks as Markdown notes with YAML frontmatter, wikilinks, and index files."
+    >
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-zinc-400 mb-1.5">Vault path</label>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <FolderOpen size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <input
+                type="text"
+                value={vaultPath}
+                onChange={(e) => setVaultPath(e.target.value)}
+                placeholder={savedPath ?? '/Users/you/ObsidianVault'}
+                className="w-full pl-9 pr-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 font-mono"
+              />
+            </div>
+            <button
+              onClick={() => setBrowserOpen(!browserOpen)}
+              title="Browse folders"
+              className="px-3 py-2.5 rounded-xl bg-zinc-700 hover:bg-zinc-600 text-zinc-300 transition-colors"
+            >
+              <Folder size={16} />
+            </button>
+            <button
+              onClick={() => handleSavePath()}
+              disabled={savingPath || !vaultPath.trim()}
+              className="px-4 py-2.5 rounded-xl bg-zinc-700 hover:bg-zinc-600 text-sm font-medium text-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {savingPath ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+          {savedPath && (
+            <p className="text-xs text-zinc-500 mt-1.5">
+              Current: <code className="font-mono text-zinc-400">{savedPath}</code>
+            </p>
+          )}
+        </div>
+
+        {browserOpen && (
+          <FolderBrowser
+            onSelect={handleBrowseSelect}
+            onClose={() => setBrowserOpen(false)}
+          />
+        )}
+
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={overwrite}
+              onChange={(e) => setOverwrite(e.target.checked)}
+              className="rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-indigo-500/50"
+            />
+            Overwrite existing notes
+          </label>
+        </div>
+
+        <button
+          onClick={handleExport}
+          disabled={exporting || !savedPath}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {exporting ? (
+            <>
+              <Loader2 size={14} className="animate-spin" />
+              Exporting...
+            </>
+          ) : (
+            <>
+              <Download size={14} />
+              Export to Obsidian
+            </>
+          )}
+        </button>
+
+        {result && (
+          <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-3 text-sm">
+            <p className="text-green-400">{result.written} notes written</p>
+            {result.skipped > 0 && <p className="text-zinc-400">{result.skipped} skipped (already exist)</p>}
+            {result.indexesWritten > 0 && <p className="text-zinc-400">{result.indexesWritten} index files created</p>}
+            {result.errors.length > 0 && <p className="text-red-400">{result.errors.length} errors</p>}
+          </div>
+        )}
+      </div>
+    </Section>
   )
 }
 
@@ -756,7 +1063,7 @@ function DangerZoneSection({ onToast }: { onToast: (t: Toast) => void }) {
 const TECH_STACK = [
   { label: 'Next.js 15', color: 'bg-zinc-800 text-zinc-300 border-zinc-700' },
   { label: 'Prisma + SQLite', color: 'bg-zinc-800 text-zinc-300 border-zinc-700' },
-  { label: 'Anthropic / OpenAI', color: 'bg-blue-500/10 text-blue-300 border-blue-500/20' },
+  { label: 'Anthropic / OpenAI / MiniMax', color: 'bg-blue-500/10 text-blue-300 border-blue-500/20' },
   { label: 'React Flow', color: 'bg-zinc-800 text-zinc-300 border-zinc-700' },
   { label: 'Tailwind CSS', color: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20' },
 ]
@@ -1007,6 +1314,7 @@ export default function SettingsPage() {
         <ApiKeySection onToast={showToast} />
         <XOAuthSection onToast={showToast} />
         <DataSection />
+        <ObsidianExportBlock onToast={showToast} />
         <DangerZoneSection onToast={showToast} />
         <AboutSection />
       </div>
